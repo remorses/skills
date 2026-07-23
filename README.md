@@ -2,7 +2,7 @@
     <br/>
     <br/>
     <h3>skills</h3>
-    <p>Agent skills for AI coding assistants by @__morse</p>
+    <p>Agent skills for AI coding assistants by <a href="https://x.com/__morse">@__morse</a></p>
     <br/>
     <br/>
 </div>
