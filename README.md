@@ -21,4 +21,5 @@ workflows, patterns, and tools specific to these projects.
 
 | Skill | Description |
 |-------|-------------|
+| `egaki-angled-screen` | Cinematic angled product shots from flat screenshots via egaki `<AngledScreen>` |
 | `x-articles` | Edit X (Twitter) long-form article drafts via GraphQL mutations |
