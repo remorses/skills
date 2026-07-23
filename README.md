@@ -21,4 +21,4 @@ workflows, patterns, and tools specific to these projects.
 
 | Skill | Description |
 |-------|-------------|
-| `tommy-x-posts` | Write and publish X posts for Tommy in his voice |
+| `x-articles` | Edit X (Twitter) long-form article drafts via GraphQL mutations |
