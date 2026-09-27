@@ -154,12 +154,22 @@ https://x.com/compose/articles/edit/<article_id>
 
 Always parse and keep the numeric `article_id`. The content mutation needs it.
 
+To create a **new** draft, open `https://x.com/compose/articles` and click the
+`Write` link (`[data-testid="empty_state_button_text"]`). It fires
+`ArticleEntityDraftCreate` and navigates to `/compose/articles/edit/<id>`. The
+`create` button next to the `Articles` heading did not navigate in one test.
+Use `Write`.
+
+Set the title by typing into `getByRole("textbox", { name: "Add a title" })`.
+That fires `ArticleEntityUpdateTitle` on its own, so a title never needs a
+direct mutation.
+
 Example Playwriter check:
 
 ```bash
 playwriter session new
 playwriter -s 1 -e '
-state.page = context.pages().find((p) => {
+state.page = context.pages().findLast((p) => {
   return p.url().includes("/compose/articles/edit/")
 })
 if (!state.page) {
@@ -185,7 +195,7 @@ Example validation command:
 
 ```bash
 playwriter -s 1 -e '
-state.page = context.pages().find((p) => {
+state.page = context.pages().findLast((p) => {
   return p.url().includes("/compose/articles/edit/")
 })
 console.log(
@@ -221,20 +231,22 @@ Example request logger:
 
 ```bash
 playwriter -s 1 -e '
-state.page = context.pages().find((p) => {
+state.page = context.pages().findLast((p) => {
   return p.url().includes("/compose/articles/edit/")
 })
 state.requests = []
-state.page.removeAllListeners("request")
-state.page.on("request", (req) => {
-  if (req.url().includes("ArticleEntity") || req.url().includes("graphql")) {
+// never removeAllListeners(): it also drops playwriter's own listeners
+if (state.onReq) state.page.off("request", state.onReq)
+state.onReq = (req) => {
+  if (req.url().includes("/graphql/") && req.method() === "POST") {
     state.requests.push({
       url: req.url(),
-      method: req.method(),
+      headers: req.headers(),
       postData: req.postData(),
     })
   }
-})
+}
+state.page.on("request", state.onReq)
 console.log(
   "Ready: now make one tiny manual edit in the page, then rerun this command to inspect state.requests",
 )
@@ -257,9 +269,16 @@ This is the reliable path for:
 Concrete pattern:
 
 1. build `content_state` in a local JSON file
-2. read `ct0` from `document.cookie`
-3. send `ArticleEntityUpdateContent` with the same `queryId` and feature flags
+2. take the captured `ArticleEntityUpdateContent` request, parse its
+   `postData`, and replace only `variables.content_state`
+3. send it to the captured URL with the captured headers
 4. reload the page
+
+**Replay the captured request. Do not rebuild the payload by hand.** The
+`features` flags and `x-twitter-client-language` change per account and over
+time. A hand-written flag set already drifted once
+(`responsive_web_profile_redirect_enabled` flipped from `false` to `true`).
+`x-client-transaction-id` is not needed; the replay returned 200 without it.
 
 ### 5. Reload and validate
 
@@ -275,7 +294,7 @@ Example reload + search:
 
 ```bash
 playwriter -s 1 -e '
-state.page = context.pages().find((p) => {
+state.page = context.pages().findLast((p) => {
   return p.url().includes("/compose/articles/edit/")
 })
 await state.page.reload({ waitUntil: "domcontentloaded" })
@@ -325,6 +344,15 @@ Each item is its own block:
 }
 ```
 
+### Bullet lists
+
+Same as numbered lists, with `unordered-list-item`. It renders as `<ul><li>`.
+
+### Inline code
+
+There is **no inline code style**. Strip markdown backticks and send plain
+text.
+
 ### Code blocks
 
 Code blocks are not plain text blocks. They are:
@@ -347,19 +375,22 @@ must be ` ```typescript `, not ` ```ts `.
 
 ## Inline styles
 
-Bold text is represented with `inlineStyleRanges` inside a block.
+Bold text is represented with `inline_style_ranges` inside a block.
 
 Important session learning:
 
 - the style name is `Bold`
 - not `BOLD`
+- the **request** uses snake_case (`inline_style_ranges`, `entity_ranges`,
+  `entity_map`). The **response** echoes camelCase (`inlineStyleRanges`).
+  Always send snake_case
 
 Example:
 
 ```json
 {
   "text": "your clanker loves state",
-  "inlineStyleRanges": [
+  "inline_style_ranges": [
     { "offset": 19, "length": 5, "style": "Bold" }
   ]
 }
@@ -403,7 +434,7 @@ Recovery command:
 ```bash
 playwriter session new
 playwriter -s 1 -e '
-state.page = context.pages().find((p) => {
+state.page = context.pages().findLast((p) => {
   return p.url().includes("/compose/articles/edit/")
 })
 if (!state.page) {
@@ -444,29 +475,62 @@ After updating an article, verify all of these:
 6. bold keywords are split into separate styled spans in the HTML
 7. no stray empty headings or broken split paragraphs remain
 
+**Compare every block against the source JSON.** This catches split paragraphs
+and lost code lines in one pass. Each block is a `[data-block=true]` element;
+code blocks hold their text in a `<code>`:
+
+```bash
+playwriter -s 1 -e '
+const fs = require("node:fs")
+const expected = JSON.parse(fs.readFileSync("./tmp/x-article-content-state.json", "utf8"))
+const got = await state.page.evaluate(() =>
+  [...document.querySelectorAll("[data-testid=composer] [data-block=true]")].map((e) => {
+    const code = e.querySelector("code")
+    return { tag: e.tagName, text: code ? code.innerText : e.innerText }
+  }),
+)
+console.log("blocks", got.length, "expected", expected.blocks.length)
+expected.blocks.forEach((b, i) => {
+  let want = b.text
+  if (b.type === "atomic") {
+    const md = expected.entity_map[b.entity_ranges[0].key].value.data.markdown
+    want = md.split("\n").slice(1, -1).join("\n")
+  }
+  if (got[i]?.text.trim() !== want.trim()) console.log("MISMATCH", i, b.type, got[i]?.text.slice(0, 80))
+})
+'
+```
+
+**Screenshots are not a validation tool here.** A playwriter tab in the
+background paints black, and a `locator.screenshot()` of the tall composer is
+black below the first viewport. Validate with the DOM. Ask the user to open
+Preview for the visual check.
+
 ## Useful recipes
 
 ### Import a markdown article
 
-1. parse the markdown locally
-2. map paragraphs to `unstyled`
-3. map `##` headings to `header-two`
-4. map numbered list items to `ordered-list-item`
-5. map fenced code blocks to `atomic` + `MARKDOWN` entities
-6. send `ArticleEntityUpdateContent`
-7. reload and validate
+`scripts/md-to-content-state.ts` in this skill folder does the conversion:
+frontmatter and `#` title dropped, paragraphs to `unstyled`, `##` to
+`header-two`, `-` and `1.` items to list blocks, fenced code to `atomic` +
+`MARKDOWN` entities with `ts` renamed to `typescript`, inline backticks
+stripped.
 
-The fastest implementation is usually:
+```bash
+bun <skill-dir>/scripts/md-to-content-state.ts post.md ./tmp/x-article-content-state.json
+```
 
-1. generate `./tmp/x-article-content-state.json`
-2. read it from a Playwriter command with `fs.readFileSync`
-3. push it with the direct content mutation
+It prints one line per block. Read it before pushing. Then:
+
+1. type the title into the title field
+2. push the JSON with the replay below
+3. reload and run the block comparison from the validation checklist
 
 ### Bold one keyword per paragraph
 
 1. choose one keyword per paragraph
 2. compute exact `offset` and `length`
-3. add `inlineStyleRanges` with style `Bold`
+3. add `inline_style_ranges` with style `Bold`
 4. push the updated `content_state`
 5. reload and verify the HTML splits around the bold span
 
@@ -481,65 +545,39 @@ Then resend the full `content_state` and reload the editor.
 
 ## Minimal bulk update example
 
-Use this pattern when you already have the right `queryId` and payload shape:
+Run this after the request logger captured one `ArticleEntityUpdateContent`
+(type one character in the body). It keeps every captured flag and header and
+swaps only the content:
 
 ```bash
 playwriter -s 1 -e '
 const fs = require("node:fs")
-state.page = context.pages().find((p) => {
-  return p.url().includes("/compose/articles/edit/")
-})
-const articleId = state.page.url().match(/edit\/(\d+)/)?.[1]
-const contentState = JSON.parse(
+const captured = state.requests.findLast((r) => r.url.includes("ArticleEntityUpdateContent"))
+if (!captured) throw new Error("Type one character in the body first")
+const payload = JSON.parse(captured.postData)
+payload.variables.content_state = JSON.parse(
   fs.readFileSync("./tmp/x-article-content-state.json", "utf8"),
 )
-const csrfToken = await state.page.evaluate(() => {
-  return document.cookie
-    .split("; ")
-    .find((x) => x.startsWith("ct0="))
-    ?.slice(4) || ""
-})
-const payload = {
-  variables: {
-    content_state: contentState,
-    article_entity: articleId,
-  },
-  features: {
-    profile_label_improvements_pcf_label_in_post_enabled: true,
-    responsive_web_profile_redirect_enabled: false,
-    rweb_tipjar_consumption_enabled: false,
-    verified_phone_label_enabled: false,
-    responsive_web_graphql_skip_user_profile_image_extensions_enabled: false,
-    responsive_web_graphql_timeline_navigation_enabled: true,
-  },
-  queryId: "<capture-from-real-request>",
-}
-const response = await state.page.evaluate(async ({ payload, csrfToken }) => {
-  const res = await fetch(
-    `https://x.com/i/api/graphql/${payload.queryId}/ArticleEntityUpdateContent`,
-    {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        authorization: "<capture-from-real-request>",
-        "content-type": "application/json",
-        "x-csrf-token": csrfToken,
-        "x-twitter-active-user": "yes",
-        "x-twitter-auth-type": "OAuth2Session",
-        "x-twitter-client-language": "it",
-      },
-      body: JSON.stringify(payload),
-    },
-  )
+const headers = {}
+for (const k of [
+  "authorization",
+  "content-type",
+  "x-csrf-token",
+  "x-twitter-active-user",
+  "x-twitter-auth-type",
+  "x-twitter-client-language",
+]) headers[k] = captured.headers[k]
+const response = await state.page.evaluate(async ({ url, headers, body }) => {
+  const res = await fetch(url, { method: "POST", credentials: "include", headers, body })
   return { status: res.status, text: await res.text() }
-}, { payload, csrfToken })
+}, { url: captured.url, headers, body: JSON.stringify(payload) })
 console.log(response.status)
-console.log(response.text.slice(0, 1000))
+console.log(response.text.slice(0, 500))
 '
 ```
 
-Replace the bearer token and `queryId` with values captured from a successful
-browser request in the current session.
+A 200 response echoes the saved `content_state`. The editor does not update
+until you reload the page.
 
 ## Default strategy
 
