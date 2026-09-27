@@ -501,10 +501,15 @@ expected.blocks.forEach((b, i) => {
 '
 ```
 
-**Screenshots are not a validation tool here.** A playwriter tab in the
-background paints black, and a `locator.screenshot()` of the tall composer is
-black below the first viewport. Validate with the DOM. Ask the user to open
-Preview for the visual check.
+For a visual check, open `/compose/articles/edit/<id>/preview`, take viewport
+screenshots, and scroll with `mouse.wheel` between them. The article column
+scrolls, not the document, so `scrollTop` does nothing.
+
+- **read the PNG size before you crop.** `scale: "css"` can still return
+  device pixels (a 1280px viewport came back 2560 or 5120 wide). A crop in CSS
+  pixels then lands on the dark sidebar and looks like a black screenshot
+- do not `locator.screenshot()` the whole composer. Playwriter sends
+  `captureBeyondViewport: false`, so everything below the viewport is black
 
 ## Useful recipes
 
