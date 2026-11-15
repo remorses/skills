@@ -8,6 +8,7 @@ import http from 'node:http'
 import path from 'node:path'
 import url from 'node:url'
 import { spawn } from 'node:child_process'
+import { stripTypeScriptTypes } from 'node:module'
 import { once } from 'node:events'
 import { goke } from 'goke'
 import { z } from 'zod'
@@ -15,8 +16,8 @@ import dedent from 'string-dedent'
 import { connectViaExtension } from 'playwriter'
 import { LIGHT_COOKIE_DEFAULTS, LIGHT_PRESETS, SHADOW_PRESETS, type LightCookieParams } from './index.ts'
 
-// dist/ holds index.js, the browser renderer the page imports
-const MODULE_DIR = path.dirname(url.fileURLToPath(import.meta.url))
+// the browser renderer, served as JS with its types erased (no build step)
+const RENDERER_PATH = path.join(path.dirname(url.fileURLToPath(import.meta.url)), 'index.ts')
 // three/build/three.module.js -> package root, served under /three/
 const THREE_DIR = path.resolve(path.dirname(url.fileURLToPath(import.meta.resolve('three'))), '..')
 
@@ -152,7 +153,7 @@ function startServer({
       return
     }
     let body: Buffer | undefined
-    if (pathname === '/index.js') body = readStatic(MODULE_DIR, 'index.js')
+    if (pathname === '/index.js') body = Buffer.from(stripTypeScriptTypes(fs.readFileSync(RENDERER_PATH, 'utf8')))
     else if (pathname.startsWith('/three/')) body = readStatic(THREE_DIR, pathname.slice('/three/'.length))
     else if (pathname.startsWith('/input/')) {
       const file = inputs[pathname.slice('/input/'.length)]

@@ -4,23 +4,26 @@ description: |
   light-cookie lights a flat image like a real object on a wall: a warm window light cookie
   (window, blinds, beam or a custom image), moving leaf or bar shadow cookies, soft spill, dim
   fill, surface relief, 3D tilt and skew, slow camera push, bloom, film grain, vignette and lens
-  fringe. The `@egaki/light-cookie` CLI renders through the user's Chrome (playwriter) with
+  fringe. The CLI in this skill folder renders through the user's Chrome (playwriter) with
   three.js and writes png, jpg, webp stills or mp4, mov, webm videos (ffmpeg).
   ALWAYS load this skill when the user asks for light cookies, gobo light, window light or leaf
   shadows on an image, "sunlight through a window" or moody cinematic light on art, icons,
   paintings, product shots or posters, or runs `light-cookie`.
+repo: remorses/skills
 ---
 
 # light-cookie
 
-Read the help first, in full, every session:
+The CLI is TypeScript in this skill folder, run directly with Node 24 (no build). Install the
+dependencies once, then read the help in full, every session:
 
 ```bash
-npx @egaki/light-cookie --help
+cd <skill base dir> && pnpm install
+node <skill base dir>/src/cli.ts --help
 ```
 
-Inside the egaki repo run the local build: `node light-cookie/dist/cli.js` (run `pnpm build` in
-`light-cookie/` first). It needs Chrome with the playwriter extension, and ffmpeg for videos.
+It needs Chrome with the playwriter extension, and ffmpeg for videos. Below, `light-cookie`
+means `node <skill base dir>/src/cli.ts`.
 
 ```bash
 # still, 3840x2160 jpg
